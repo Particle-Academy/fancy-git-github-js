@@ -1,6 +1,13 @@
 import { Octokit } from "octokit";
 import type {
   CheckState,
+  CreateIssueInput,
+  Issue,
+  IssueDetails,
+  IssueProvider,
+  IssueQuery,
+  IssueState,
+  UpdateIssueInput,
   CheckSummary,
   Comparison,
   CreateReviewInput,
@@ -42,7 +49,7 @@ function checkState(status: string | null, conclusion: string | null): CheckStat
   return "unknown";
 }
 
-export class GitHubProvider implements GitProvider {
+export class GitHubProvider implements GitProvider, IssueProvider {
   readonly kind = "github" as const;
   private readonly baseUrl: string;
   private readonly client: Octokit;
@@ -111,6 +118,131 @@ export class GitHubProvider implements GitProvider {
       ...runs.check_runs.map((run) => ({ id: String(run.id), name: run.name, state: checkState(run.status, run.conclusion), webUrl: run.html_url ?? undefined, startedAt: run.started_at ?? undefined, completedAt: run.completed_at ?? undefined })),
       ...statuses.statuses.map((status) => ({ id: String(status.id), name: status.context, state: checkState(status.state, status.state), webUrl: status.target_url ?? undefined })),
     ];
+  }
+
+  /**
+   * List issues.
+   *
+   * GitHub's issues endpoint returns PULL REQUESTS TOO — a pull request is an
+   * issue in its data model, and every one of them arrives with a
+   * `pull_request` key. Left unfiltered, "list the open issues" answers with
+   * the open PRs mixed in, which is wrong in a way that reads as right until
+   * somebody counts.
+   */
+  async listIssues(ref: ProviderRepositoryRef, query: IssueQuery = {}): Promise<Page<Issue>> {
+    const page = Number(query.cursor ?? "1");
+    const perPage = query.limit ?? 30;
+
+    const { data } = await this.client.rest.issues.listForRepo({
+      owner: ref.owner,
+      repo: ref.name,
+      state: query.state ?? "open",
+      page,
+      per_page: perPage,
+      ...(query.labels?.length ? { labels: query.labels.join(",") } : {}),
+      ...(query.assignee ? { assignee: query.assignee } : {}),
+    });
+
+    const items = data.filter((item: any) => !item.pull_request).map((item: any) => this.mapIssue(item));
+
+    return {
+      items,
+      // Paginate on what GitHub returned, not on what survived the filter: a
+      // page that was all pull requests still has a next page behind it.
+      ...(data.length === perPage ? { nextCursor: String(page + 1) } : {}),
+    };
+  }
+
+  async getIssue(ref: ProviderRepositoryRef, number: number): Promise<IssueDetails> {
+    const { data } = await this.client.rest.issues.get({
+      owner: ref.owner,
+      repo: ref.name,
+      issue_number: number,
+    });
+
+    if ((data as any).pull_request) {
+      throw new Error(
+        `#${number} in ${ref.owner}/${ref.name} is a pull request, not an issue. Use getReview for pull requests.`,
+      );
+    }
+
+    return {
+      ...this.mapIssue(data),
+      body: data.body ?? undefined,
+      closedAt: data.closed_at ?? undefined,
+      commentCount: data.comments,
+    };
+  }
+
+  async createIssue(ref: ProviderRepositoryRef, input: CreateIssueInput): Promise<Issue> {
+    const { data } = await this.client.rest.issues.create({
+      owner: ref.owner,
+      repo: ref.name,
+      title: input.title,
+      ...(input.body ? { body: input.body } : {}),
+      ...(input.labels?.length ? { labels: input.labels } : {}),
+      ...(input.assignees?.length ? { assignees: input.assignees } : {}),
+    });
+
+    return this.mapIssue(data);
+  }
+
+  /**
+   * Update an issue.
+   *
+   * Only the fields present are sent. Echoing the whole issue back would
+   * clobber whatever someone else changed between the read and the write, and
+   * on an issue tracker that someone is usually a person mid-conversation.
+   */
+  async updateIssue(
+    ref: ProviderRepositoryRef,
+    number: number,
+    input: UpdateIssueInput,
+  ): Promise<Issue> {
+    const { data } = await this.client.rest.issues.update({
+      owner: ref.owner,
+      repo: ref.name,
+      issue_number: number,
+      ...(input.title !== undefined ? { title: input.title } : {}),
+      ...(input.body !== undefined ? { body: input.body } : {}),
+      ...(input.state !== undefined ? { state: input.state } : {}),
+      ...(input.labels !== undefined ? { labels: input.labels } : {}),
+      ...(input.assignees !== undefined ? { assignees: input.assignees } : {}),
+    });
+
+    return this.mapIssue(data);
+  }
+
+  async commentOnIssue(
+    ref: ProviderRepositoryRef,
+    number: number,
+    body: string,
+  ): Promise<{ id: string; webUrl: string }> {
+    const { data } = await this.client.rest.issues.createComment({
+      owner: ref.owner,
+      repo: ref.name,
+      issue_number: number,
+      body,
+    });
+
+    return { id: String(data.id), webUrl: data.html_url };
+  }
+
+  private mapIssue(item: any): Issue {
+    return {
+      id: String(item.id),
+      number: item.number,
+      title: item.title,
+      state: (item.state === "closed" ? "closed" : "open") as IssueState,
+      webUrl: item.html_url,
+      author: item.user?.login ?? "unknown",
+      labels: (item.labels ?? []).map((label: any) =>
+        typeof label === "string" ? label : (label?.name ?? ""),
+      ),
+      assignees: (item.assignees ?? []).map((user: any) => user?.login ?? ""),
+      createdAt: item.created_at,
+      updatedAt: item.updated_at,
+    };
   }
 
   private mapReview(item: any): Review {

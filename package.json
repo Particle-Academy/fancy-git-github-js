@@ -1,6 +1,6 @@
 {
   "name": "@particle-academy/fancy-git-github",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "GitHub.com and GitHub Enterprise adapter for @particle-academy/fancy-git.",
   "license": "MIT",
   "type": "module",
@@ -38,10 +38,10 @@
     "octokit": "^5.0.0"
   },
   "peerDependencies": {
-    "@particle-academy/fancy-git": ">=0.1 <2.0"
+    "@particle-academy/fancy-git": ">=0.2 <2.0"
   },
   "devDependencies": {
-    "@particle-academy/fancy-git": "^0.1.2",
+    "@particle-academy/fancy-git": "^0.2.0",
     "tsup": "^8.5.0",
     "typescript": "^5.8.0",
     "vitest": "^3.2.0"
