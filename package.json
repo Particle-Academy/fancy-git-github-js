@@ -1,6 +1,6 @@
 {
   "name": "@particle-academy/fancy-git-github",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "GitHub.com and GitHub Enterprise adapter for @particle-academy/fancy-git.",
   "license": "MIT",
   "type": "module",
@@ -26,7 +26,7 @@
   ],
   "sideEffects": false,
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "build": "tsup",
