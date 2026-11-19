@@ -8,6 +8,9 @@
  * Octokit's defaults that a caller would notice losing (see `request`).
  */
 
+import { GitError } from "@particle-academy/fancy-git";
+import type { GitErrorCode } from "@particle-academy/fancy-git";
+
 /** The REST API version every request pins. */
 export const GITHUB_API_VERSION = "2022-11-28";
 
@@ -55,7 +58,27 @@ export interface RequestOptions {
   body?: unknown;
 }
 
-export class GitHubApiError extends Error {
+/**
+ * The fancy-git contract code for a GitHub HTTP status, the same table the
+ * GitLab and Bitbucket adapters use. A rate limit is `rate_limited` whatever
+ * its status (GitHub sends a spent primary quota as a 403).
+ */
+export function errorCodeFor(status: number, rateLimited = false): GitErrorCode {
+  if (rateLimited || status === 429) return "rate_limited";
+  if (status === 401 || status === 403) return "auth";
+  if (status === 404) return "not_found";
+  if (status === 405) return "unsupported";
+  if (status === 409) return "conflict";
+  if (status === 400 || status === 422) return "invalid_argument";
+  return "unknown";
+}
+
+/**
+ * A failed GitHub request. It is a fancy-git `GitError`, so `code` carries the
+ * contract code (`auth`, `not_found`, `rate_limited`, ...) and `exitCode` the
+ * HTTP status, and a caller can catch every adapter's failures the same way.
+ */
+export class GitHubApiError extends GitError {
   readonly status: number;
   readonly method: string;
   readonly url: string;
@@ -76,9 +99,14 @@ export class GitHubApiError extends Error {
     requestId?: string;
     rateLimit?: RateLimit;
     cause?: unknown;
-  }) {
+  }, rateLimited = false) {
     const what = init.githubMessage ?? (init.status === 0 ? "network error" : `HTTP ${init.status}`);
-    super(`GitHub API ${init.status} ${init.method} ${init.url}: ${what}${init.requestId ? ` (request ${init.requestId})` : ""}`, init.cause === undefined ? undefined : { cause: init.cause });
+    super(
+      errorCodeFor(init.status, rateLimited),
+      `GitHub API ${init.status} ${init.method} ${init.url}: ${what}${init.requestId ? ` (request ${init.requestId})` : ""}`,
+      init.status === 0 ? undefined : init.status,
+    );
+    if (init.cause !== undefined) Object.defineProperty(this, "cause", { value: init.cause, enumerable: false, writable: true, configurable: true });
     this.name = "GitHubApiError";
     this.status = init.status;
     this.method = init.method;
@@ -96,16 +124,17 @@ export class GitHubRateLimitError extends GitHubApiError {
   readonly retryAfter?: number;
 
   constructor(init: ConstructorParameters<typeof GitHubApiError>[0] & { retryAfter?: number }) {
-    super(init);
+    super(init, true);
     this.name = "GitHubRateLimitError";
     this.retryAfter = init.retryAfter;
   }
 }
 
 /**
- * Longest `Link` header parsed. GitHub's are a few hundred bytes; anything past
- * this is ignored rather than parsed, so a hostile or broken server cannot make
- * the client do unbounded work.
+ * Longest `Link` header parsed. GitHub's are a few hundred bytes. A longer one
+ * is refused with a `GitError`, so a hostile or broken server cannot make the
+ * client do unbounded work: refused, not ignored, because ignoring it ends a
+ * paginated walk early with a list that reads as complete.
  */
 export const MAX_LINK_HEADER_LENGTH = 8 * 1024;
 
@@ -118,7 +147,10 @@ export const MAX_LINK_HEADER_LENGTH = 8 * 1024;
  */
 export function parseLinkHeader(header: string | null | undefined): Record<string, string> {
   const links: Record<string, string> = {};
-  if (!header || header.length > MAX_LINK_HEADER_LENGTH) return links;
+  if (!header) return links;
+  if (header.length > MAX_LINK_HEADER_LENGTH) {
+    throw new GitError("unknown", `GitHub sent a pagination Link header longer than ${MAX_LINK_HEADER_LENGTH} characters. It was not parsed, and the page was not returned, because the list may be incomplete.`);
+  }
   for (const part of header.split(",")) {
     const open = part.indexOf("<");
     if (open === -1) continue;

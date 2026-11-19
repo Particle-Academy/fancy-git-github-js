@@ -74,15 +74,17 @@ describe("Link header", () => {
     ];
     for (const header of hostile) {
       const started = performance.now();
-      expect(parseLinkHeader(header)).toEqual({});
+      // Over the cap it is refused (tests/contract-errors.test.ts); under it, parsed to nothing.
+      if (header.length > 8 * 1024) expect(() => parseLinkHeader(header)).toThrow();
+      else expect(parseLinkHeader(header)).toEqual({});
       expect(performance.now() - started).toBeLessThan(50);
     }
   });
 
-  it("ignores a Link header beyond 8 KB rather than parsing all of it", () => {
+  it("refuses a Link header beyond 8 KB rather than parsing all of it, or ignoring it", () => {
     const padding = `<${API}/pad>; rel="pad", `.repeat(400);
     expect(padding.length).toBeGreaterThan(8 * 1024);
-    expect(parseLinkHeader(`${padding}<${API}/x?page=2>; rel="next"`).next).toBeUndefined();
+    expect(() => parseLinkHeader(`${padding}<${API}/x?page=2>; rel="next"`)).toThrow(/longer than 8192/);
   });
 
   it("surfaces the links on the response", async () => {

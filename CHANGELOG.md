@@ -52,6 +52,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A pagination `Link` header over 8 KB now throws instead of being ignored.**
+  Ignoring it ended `listReviews` / `listIssues` on the current page with no
+  `nextCursor`, so a walk returned a short list that read as complete. It now
+  throws a `GitError` (code `unknown`), as the GitLab adapter already did.
+  `parseLinkHeader()` throws the same way for an over-cap header. GitHub's own
+  headers are a few hundred bytes, so nothing to do unless you call
+  `parseLinkHeader()` on headers you do not control.
+- **GitHub's failures carry the fancy-git error code.** `GitHubApiError` (and
+  `GitHubRateLimitError`) now extend fancy-git's `GitError`: `code` is the
+  contract code (401/403 `auth`, 404 `not_found`, 400/422 `invalid_argument`,
+  405 `unsupported`, 409 `conflict`, any rate limit `rate_limited`, otherwise
+  `unknown`) and `exitCode` is the HTTP status. A 429 used to carry no code at
+  all. Nothing to do: `status`, `githubMessage` and the subclasses are
+  unchanged, and `instanceof GitHubApiError` still holds. Found by the
+  fancy-labs git-adapter test.
+
 - **`listReviews` and `listIssues` no longer offer a next page that does not
   exist.** The next cursor came from the page length alone, so a last page that
   happened to be exactly full sent the caller to fetch an empty page. It now
