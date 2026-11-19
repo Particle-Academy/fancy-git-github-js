@@ -36,9 +36,6 @@
     "test": "vitest run",
     "prepublishOnly": "npm run lint && npm test && npm run build"
   },
-  "dependencies": {
-    "octokit": "^5.0.0"
-  },
   "peerDependencies": {
     "@particle-academy/fancy-git": ">=0.2 <2.0"
   },

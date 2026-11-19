@@ -7,8 +7,16 @@ works in this repo.
 
 ## Layout
 
-- `src/index.ts` — `GitHubProvider`, the whole adapter, over Octokit.
-- `tests/` — the vitest suite (`provider.test.ts`, `issues.test.ts`).
+- `src/index.ts` — `GitHubProvider`, the whole adapter.
+- `src/client.ts` — `GitHubClient`, the first-party REST client on global
+  `fetch` (auth, pinned API version, Link parsing, typed errors, rate limits,
+  retries). It replaced octokit on 2026-11-19: do not add an SDK back. Paths are
+  built with the `path` tag, which URL-encodes every interpolated value.
+- `tests/` — the vitest suite. `transport.test.ts` asserts what each operation
+  puts on the wire through a fake `fetch` (`tests/support/`); those assertions
+  were recorded against the octokit version before the swap.
+  `tests/support/make-provider.ts` is the only place the tests know how the
+  provider reaches HTTP.
 
 ## Commands
 

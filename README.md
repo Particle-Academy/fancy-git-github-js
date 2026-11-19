@@ -3,8 +3,8 @@
 [![Fancified](art/fancified.svg)](https://particle.academy)
 
 GitHub.com and GitHub Enterprise implementation of the
-`@particle-academy/fancy-git` provider contract, powered by GitHub's official
-Octokit SDK.
+`@particle-academy/fancy-git` provider contract, over GitHub's REST API with
+global `fetch` and no runtime dependencies.
 
 <!-- fancy-agents-note:start -->
 > **For agents.** This package is listed on the Fancy MCP catalog server at

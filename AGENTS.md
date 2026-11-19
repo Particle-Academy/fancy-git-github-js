@@ -11,7 +11,7 @@ npm install @particle-academy/fancy-git @particle-academy/fancy-git-github
 ```
 
 - `@particle-academy/fancy-git` is a **peer** (`>=0.2 <2.0`); install it too.
-- Runtime dependency: `octokit` `^5`. **Node:** `>=22`.
+- No runtime dependencies: it uses global `fetch`. **Node:** `>=22`.
 
 ## Find it on the Fancy MCP server
 
@@ -33,7 +33,14 @@ const providers = new ProviderRegistry().register(github);
 ```
 
 - `GitHubProviderOptions`: `token`, `baseUrl` (defaults to
-  `https://api.github.com`), or `client` (your own `Octokit` instance).
+  `https://api.github.com`), `fetch` (instead of the global one), or `client`
+  (your own `GitHubClient`). An `Octokit` instance is refused: octokit was
+  removed.
+- Failures throw `GitHubApiError` (`status`, `githubMessage`, `requestId`,
+  `documentationUrl`, `errors`, `rateLimit`); a rate limit throws
+  `GitHubRateLimitError` with `retryAfter` in seconds. A rate limit with a wait
+  of 60 seconds or less is retried once first; a 5xx is retried for GET and
+  PATCH only, never for POST.
 - `GitHubProvider` implements fancy-git's `GitProvider` (`kind` is `"github"`):
   `identify`, `repository`, `listReviews`, `getReview`, `createReview`,
   `compare`, `checks`. It also implements `IssueProvider`: `listIssues`,

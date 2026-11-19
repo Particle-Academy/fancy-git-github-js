@@ -12,6 +12,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING (only if you passed `client`): octokit is removed; the adapter
+  talks to GitHub through its own small client on global `fetch`.** The
+  `GitHubProviderOptions.client` option now takes a `GitHubClient` (exported
+  from this package) instead of an `Octokit` instance.
+  - **If you construct `new GitHubProvider({ token })` or `{ token, baseUrl }`,
+    do nothing.** Every operation sends the same requests to the same endpoints
+    and returns the same shapes, and the GitHub Enterprise base URL
+    (`https://<host>/api/v3`) is still supported.
+  - **If you passed `client: new Octokit(...)`**, pass `{ token, baseUrl }`
+    instead, or `client: new GitHubClient({ token, baseUrl })`. Passing an
+    Octokit instance now throws a `TypeError` that says so, rather than failing
+    on the first request.
+  - **If you caught Octokit's `RequestError`**, catch `GitHubApiError` instead.
+    It keeps `status`, and adds GitHub's own message (`githubMessage`), the
+    `requestId`, `documentationUrl`, validation `errors` and the response's
+    `rateLimit`. A rate limit throws the subclass `GitHubRateLimitError` with
+    `retryAfter` in seconds.
+  - Requests now send `Authorization: Bearer <token>`,
+    `Accept: application/vnd.github+json` and a pinned
+    `X-GitHub-Api-Version: 2022-11-28`.
+  - Retries follow Octokit's defaults where you would notice the difference: a
+    rate limit is waited out ONCE when GitHub's wait is 60 seconds or less
+    (`maxRetryAfter`), otherwise it throws; a 5xx or network failure is retried
+    up to 3 times, but now only for idempotent methods. A `POST` is never
+    replayed, because a gateway error can arrive after GitHub already created
+    the issue or pull request.
+  - Why: octokit was never approved as a dependency and fails the kit's
+    three-month freshness rule for third-party code.
+
+### Added
+
+- `GitHubClient`, `GitHubApiError`, `GitHubRateLimitError`, `parseLinkHeader`
+  and `GITHUB_API_VERSION` are exported, and `GitHubProviderOptions` takes a
+  `fetch` to use instead of the global one (a proxy, or a test double).
+- Every response carries its rate-limit headers (`limit`, `remaining`, `used`,
+  `resetAt`, `resource`) and its parsed `Link` relations.
+
+### Fixed
+
+- **`listReviews` and `listIssues` no longer offer a next page that does not
+  exist.** The next cursor came from the page length alone, so a last page that
+  happened to be exactly full sent the caller to fetch an empty page. It now
+  follows GitHub's `Link` header (`rel="next"`), and falls back to the length
+  only when there is no Link header at all. Nothing to do; a loop that follows
+  `nextCursor` makes one fewer request.
+
 - **CI: the lab-certificate gate verifies against the lab's rotated key list.**
   The lab's first signing key is retired: certificates it already issued still
   verify, and nothing new it signs ever can. Consumers do nothing.
