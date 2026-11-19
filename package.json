@@ -1,6 +1,6 @@
 {
   "name": "@particle-academy/fancy-git-github",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "GitHub.com and GitHub Enterprise adapter for @particle-academy/fancy-git.",
   "license": "MIT",
   "type": "module",
