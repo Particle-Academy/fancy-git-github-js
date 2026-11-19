@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the issue or pull request.
   - Why: octokit was never approved as a dependency and fails the kit's
     three-month freshness rule for third-party code.
+- CI: re-pin org third-party allowlist to 2614224
 
 ### Added
 
