@@ -49,6 +49,42 @@ describe("Link header", () => {
     expect(parseLinkHeader(null)).toEqual({});
   });
 
+  it("keeps the RFC 8288 forms GitHub sends", () => {
+    expect(parseLinkHeader(`<${API}/x?page=1>;rel="prev first" , <${API}/x?page=3> ;  rel="next"`)).toEqual({
+      prev: `${API}/x?page=1`,
+      first: `${API}/x?page=1`,
+      next: `${API}/x?page=3`,
+    });
+    expect(parseLinkHeader(`<${API}/x?page=2>; type="text/html"`)).toEqual({});
+    expect(parseLinkHeader(`<${API}/x?page=2>; rel=""`)).toEqual({});
+    expect(parseLinkHeader(`no angle brackets; rel="next"`)).toEqual({});
+    expect(parseLinkHeader(`<>; rel="next"`)).toEqual({});
+  });
+
+  it("parses a pathological header in linear time (CodeQL js/polynomial-redos)", () => {
+    // '<' followed by many '<=' made the old /<([^>]+)>\s*;\s*rel="([^"]+)"/ backtrack quadratically.
+    // The 100k cases are over the 8 KB cap; the ~8 KB ones prove the parser itself is linear, cap aside.
+    const hostile = [
+      `<${"<=".repeat(50_000)}`,
+      `<${"a".repeat(100_000)}`,
+      `<a>${" ".repeat(100_000)}x`,
+      `<${"<=".repeat(4_000)}`,
+      `<a>${"; rel=".repeat(1_300)}`,
+      `<a>; rel="${" ".repeat(8_000)}`,
+    ];
+    for (const header of hostile) {
+      const started = performance.now();
+      expect(parseLinkHeader(header)).toEqual({});
+      expect(performance.now() - started).toBeLessThan(50);
+    }
+  });
+
+  it("ignores a Link header beyond 8 KB rather than parsing all of it", () => {
+    const padding = `<${API}/pad>; rel="pad", `.repeat(400);
+    expect(padding.length).toBeGreaterThan(8 * 1024);
+    expect(parseLinkHeader(`${padding}<${API}/x?page=2>; rel="next"`).next).toBeUndefined();
+  });
+
   it("surfaces the links on the response", async () => {
     const fetch = fakeFetch({ body: [], headers: { link: `<${API}/x?page=2>; rel="next"` } });
     const response = await client(fetch).request("GET", "/x");
@@ -174,6 +210,20 @@ describe("provider options", () => {
     await new GitHubProvider({ client: client(fetch) }).repository({ provider: "github", owner: "a", name: "b" });
 
     expect(fetch.calls[0]!.url).toBe(`${API}/repos/a/b`);
+  });
+
+  it("trims trailing slashes from baseUrl", () => {
+    expect(new GitHubClient({ baseUrl: "https://ghe.example.com/api/v3///" }).baseUrl).toBe("https://ghe.example.com/api/v3");
+    expect(new GitHubClient({ baseUrl: "https://ghe.example.com/api/v3" }).baseUrl).toBe("https://ghe.example.com/api/v3");
+    expect(new GitHubClient().baseUrl).toBe(API);
+  });
+
+  it("trims a pathological baseUrl in linear time (CodeQL js/polynomial-redos)", () => {
+    // Many '/' not at the end made the old /\/+$/ retry from every slash.
+    const started = performance.now();
+    const c = new GitHubClient({ baseUrl: `https://h${"/".repeat(100_000)}x` });
+    expect(performance.now() - started).toBeLessThan(50);
+    expect(c.baseUrl.endsWith("/x")).toBe(true);
   });
 
   it("refuses an Octokit instance with a message that says what to pass instead", () => {

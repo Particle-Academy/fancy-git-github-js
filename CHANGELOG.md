@@ -76,6 +76,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Two polynomial-time regexes in the new client are gone (CodeQL
+  js/polynomial-redos, HIGH, alerts 1 and 2).** `parseLinkHeader` matched each
+  `Link` header part with a backtracking regex, so a hostile or broken server
+  at `baseUrl` could send a header that took seconds to parse (3.7 s for a
+  100 KB header in the regression test); trimming trailing slashes from
+  `baseUrl` had the same shape (6.7 s). Both now parse linearly with
+  `indexOf`/`slice`, and a `Link` header longer than 8 KB
+  (`MAX_LINK_HEADER_LENGTH`, exported) is ignored rather than parsed. Both
+  regexes arrived with the octokit replacement above and were never in a
+  release. **Nothing to do**: every Link header GitHub sends parses as before.
 - Update Vitest to 4.1.12 for security fixes; dev toolchain only, nothing to do.
 
 - `source-map-js` is pinned forward to `^1.2.2` via `overrides`. Versions up to

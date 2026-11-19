@@ -102,16 +102,48 @@ export class GitHubRateLimitError extends GitHubApiError {
   }
 }
 
-/** Parse an RFC 8288 `Link` header into `{ rel: url }`. */
+/**
+ * Longest `Link` header parsed. GitHub's are a few hundred bytes; anything past
+ * this is ignored rather than parsed, so a hostile or broken server cannot make
+ * the client do unbounded work.
+ */
+export const MAX_LINK_HEADER_LENGTH = 8 * 1024;
+
+/**
+ * Parse an RFC 8288 `Link` header into `{ rel: url }`.
+ *
+ * Linear by construction: indexOf / slice / split only, no backtracking regex.
+ * The header comes from whatever server `baseUrl` points at, so it is
+ * untrusted input (CodeQL js/polynomial-redos flagged the regex this replaced).
+ */
 export function parseLinkHeader(header: string | null | undefined): Record<string, string> {
   const links: Record<string, string> = {};
-  if (!header) return links;
+  if (!header || header.length > MAX_LINK_HEADER_LENGTH) return links;
   for (const part of header.split(",")) {
-    const match = part.match(/<([^>]+)>\s*;\s*rel="([^"]+)"/);
-    if (!match) continue;
-    for (const rel of match[2]!.split(/\s+/)) links[rel] = match[1]!;
+    const open = part.indexOf("<");
+    if (open === -1) continue;
+    const close = part.indexOf(">", open + 1);
+    if (close <= open + 1) continue;
+    const url = part.slice(open + 1, close);
+    for (const param of part.slice(close + 1).split(";")) {
+      const eq = param.indexOf("=");
+      if (eq === -1 || param.slice(0, eq).trim().toLowerCase() !== "rel") continue;
+      const value = param.slice(eq + 1).trim();
+      const end = value.indexOf('"', 1);
+      if (value[0] !== '"' || end <= 1) break;
+      for (const rel of value.slice(1, end).split(/\s+/)) {
+        if (rel) links[rel] = url;
+      }
+      break;
+    }
   }
   return links;
+}
+
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47 /* "/" */) end--;
+  return value.slice(0, end);
 }
 
 function intHeader(headers: Headers, name: string): number | undefined {
@@ -151,7 +183,7 @@ export class GitHubClient {
   private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(options: GitHubClientOptions = {}) {
-    this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
+    this.baseUrl = trimTrailingSlashes(options.baseUrl ?? DEFAULT_BASE_URL);
     this.token = options.token;
     this.fetchImpl = options.fetch ?? ((...args) => globalThis.fetch(...args));
     this.retries = options.retries ?? 3;
